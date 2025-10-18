@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Gmail Cleaner</title>
+</head>
+<body>
+  <h2>Gmail Cleaner</h2>
+  {% if authorized %}
+    <p>✅ Connected to Gmail!</p>
+    <a href="/delete_emails">Delete Promotional Emails</a><br><br>
+    <a href="/logout">Logout</a>
+  {% else %}
+    <p>🔒 Not connected</p>
+    <a href="/authorize">Connect Gmail</a>
+  {% endif %}
+</body>
+</html>
