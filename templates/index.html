@@ -1,45 +1,43 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <title>Gmail Cleaner</title>
 </head>
 <body>
     <h2>📧 Gmail Cleaner</h2>
     {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            <ul>
-            {% for category, message in messages %}
-                <li><strong>{{ category }}:</strong> {{ message }}</li>
-            {% endfor %}
-            </ul>
-        {% endif %}
+      {% if messages %}
+        <ul>
+        {% for category, message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
     {% endwith %}
 
     {% if authorized %}
         <p>✅ Connected to Gmail!</p>
-        <form action="/delete" method="post">
-            <label>Choose category to delete: </label>
+        <form method="POST" action="{{ url_for('delete_emails') }}">
+            <label>Choose category to delete:</label>
             <select name="category">
                 <option value="">Select</option>
                 <option value="unread">Unread</option>
-                <option value="read">Read</option>
                 <option value="flipkart">Flipkart</option>
                 <option value="amazon">Amazon</option>
                 <option value="gpay">GPay</option>
                 <option value="custom">Custom</option>
-            </select><br><br>
-
-            <label>Enter custom query if any</label>
-            <input type="text" name="custom_email" placeholder="someone@gmail.com"><br><br>
-
+            </select>
+            <br><br>
+            <label>Enter custom query if any:</label>
+            <input type="text" name="custom_email" placeholder="someone@gmail.com">
+            <br><br>
             <button type="submit">Delete Emails</button>
         </form>
         <br>
-        <a href="/logout">Logout</a>
+        <a href="{{ url_for('logout') }}">Logout</a>
     {% else %}
         <p>🔒 Not connected</p>
-        <a href="/authorize">Connect Gmail</a>
+        <a href="{{ url_for('authorize') }}">Connect Gmail</a>
     {% endif %}
 </body>
 </html>

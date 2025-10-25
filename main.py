@@ -15,10 +15,12 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 def get_gmail_service():
     creds = None
 
+    # Load token if exists
     if os.path.exists("token.pickle"):
         with open("token.pickle", "rb") as token:
             creds = pickle.load(token)
 
+    # If no valid creds, login with OAuth
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -83,7 +85,8 @@ def oauth2callback():
     )
     flow.redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
 
-    flow.fetch_token(authorization_response=request.url)
+    authorization_response = request.url
+    flow.fetch_token(authorization_response=authorization_response)
 
     creds = flow.credentials
     with open("token.pickle", "wb") as token:
@@ -105,21 +108,11 @@ def delete_emails():
         query = "from:gpay"
     elif category == "unread":
         query = "is:unread"
-    elif category == "read":
-        query = "is:read"
     elif category == "custom":
-        custom_input = request.form.get("custom_email")
-        if custom_input:
-            if "from:" not in custom_input:
-                query = f"from:{custom_input}"
-            else:
-                query = custom_input
-        else:
-            flash("❌ Please enter a valid email or query!", "error")
-            return redirect(url_for("index"))
+        query = request.form.get("custom_email")
 
     if not query:
-        flash("❌ Please select a category or enter a valid query!", "error")
+        flash("❌ Please enter a valid option!", "error")
         return redirect(url_for("index"))
 
     try:
@@ -146,7 +139,7 @@ def delete_emails():
 def logout():
     if os.path.exists("token.pickle"):
         os.remove("token.pickle")
-    flash("🔒 Logged out successfully!", "info")
+    flash("✅ Logged out successfully!", "success")
     return redirect(url_for("index"))
 
 # ---------------- Run ----------------
