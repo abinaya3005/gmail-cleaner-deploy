@@ -1,29 +1,32 @@
 import os
-import pickle
+import json
 from flask import Flask, redirect, request, render_template, flash, url_for, session
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from googleapiclient.errors import HttpError
+from google.oauth2.credentials import Credentials
 
+# ---------------- Flask Setup ----------------
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "default_secret")
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
-# ---------------- Gmail API Authentication ----------------
+# ---------------- Gmail Service ----------------
 def get_gmail_service():
     creds = None
 
-    # Load token if exists
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as token:
-            creds = pickle.load(token)
+    # Load creds from session if available
+    if "credentials" in session:
+        creds_data = json.loads(session["credentials"])
+        creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
 
-    # If no valid creds, login with OAuth
+    # If no valid creds, start OAuth flow
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            session["credentials"] = creds.to_json()
         else:
             flow = Flow.from_client_config(
                 {
@@ -40,10 +43,8 @@ def get_gmail_service():
                 SCOPES,
             )
             flow.redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
-
             authorization_url, state = flow.authorization_url(
-                access_type="offline",
-                include_granted_scopes="true"
+                access_type="offline", include_granted_scopes="true"
             )
             session["state"] = state
             return redirect(authorization_url)
@@ -52,15 +53,18 @@ def get_gmail_service():
     return service
 
 # ---------------- Routes ----------------
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    authorized = "credentials" in session
+    return render_template("index.html", authorized=authorized)
 
 @app.route("/authorize")
 def authorize():
     response = get_gmail_service()
     # If get_gmail_service() returned a redirect, return it
-    if isinstance(response, type(redirect("/"))):
+    from werkzeug.wrappers import Response
+    if isinstance(response, Response):
         return response
     flash("✅ Gmail already connected!", "success")
     return redirect(url_for("index"))
@@ -85,18 +89,31 @@ def oauth2callback():
     )
     flow.redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
 
-    authorization_response = request.url
-    flow.fetch_token(authorization_response=authorization_response)
-
+    flow.fetch_token(authorization_response=request.url)
     creds = flow.credentials
-    with open("token.pickle", "wb") as token:
-        pickle.dump(creds, token)
+
+    # Save credentials in session
+    session["credentials"] = creds.to_json()
 
     flash("✅ Gmail connected successfully!", "success")
     return redirect(url_for("index"))
 
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("🔒 Disconnected from Gmail.", "info")
+    return redirect(url_for("index"))
+
 @app.route("/delete", methods=["POST"])
 def delete_emails():
+    if "credentials" not in session:
+        flash("❌ Please connect Gmail first!", "error")
+        return redirect(url_for("index"))
+
+    creds_data = json.loads(session["credentials"])
+    creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
+    service = build("gmail", "v1", credentials=creds)
+
     category = request.form.get("category")
     query = ""
 
@@ -116,11 +133,10 @@ def delete_emails():
         return redirect(url_for("index"))
 
     try:
-        service = get_gmail_service()
         results = service.users().messages().list(userId="me", q=query).execute()
         messages = results.get("messages", [])
-
         count = 0
+
         for msg in messages:
             service.users().messages().delete(userId="me", id=msg["id"]).execute()
             count += 1

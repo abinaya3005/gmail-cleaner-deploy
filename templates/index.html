@@ -1,13 +1,45 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
   <title>Gmail Cleaner</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin-top: 100px; }
+    button, a {
+      background-color: #007bff; color: white; padding: 10px 20px;
+      border: none; border-radius: 5px; cursor: pointer; text-decoration: none;
+    }
+    .flash { margin: 20px auto; width: 50%; padding: 10px; border-radius: 5px; }
+    .success { background-color: #d4edda; color: #155724; }
+    .error { background-color: #f8d7da; color: #721c24; }
+    .info { background-color: #d1ecf1; color: #0c5460; }
+  </style>
 </head>
 <body>
-  <h2>Gmail Cleaner</h2>
+  <h1>📧 Gmail Cleaner</h1>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
   {% if authorized %}
     <p>✅ Connected to Gmail!</p>
-    <a href="/delete_emails">Delete Promotional Emails</a><br><br>
+    <form method="POST" action="/delete">
+      <select name="category">
+        <option value="flipkart">Flipkart</option>
+        <option value="amazon">Amazon</option>
+        <option value="gpay">GPay</option>
+        <option value="unread">Unread</option>
+        <option value="custom">Custom Email</option>
+      </select>
+      <input type="text" name="custom_email" placeholder="Enter custom email or query" />
+      <button type="submit">🗑️ Delete Emails</button>
+    </form>
+    <br>
     <a href="/logout">Logout</a>
   {% else %}
     <p>🔒 Not connected</p>
