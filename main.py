@@ -1,152 +1,144 @@
 import os
-import json
-from flask import Flask, redirect, request, render_template, flash, url_for, session
+import pickle
+from flask import Flask, redirect, request, render_template, session, url_for, flash
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
-from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
+from googleapiclient.errors import HttpError
 
-# ---------------- Flask Setup ----------------
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "default_secret")
 
+# Gmail API Scopes
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
-# ---------------- Gmail Service ----------------
-def get_gmail_service():
-    creds = None
+# OAuth setup
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # for local testing
 
-    # Load creds from session if available
-    if "credentials" in session:
-        creds_data = json.loads(session["credentials"])
-        creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
-
-    # If no valid creds, start OAuth flow
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            session["credentials"] = creds.to_json()
-        else:
-            flow = Flow.from_client_config(
-                {
-                    "web": {
-                        "client_id": os.environ["GOOGLE_CLIENT_ID"],
-                        "project_id": os.environ.get("GOOGLE_PROJECT_ID", "gmail-cleaner"),
-                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                        "token_uri": "https://oauth2.googleapis.com/token",
-                        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                        "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
-                        "redirect_uris": [os.environ["GOOGLE_REDIRECT_URI"]],
-                    }
-                },
-                SCOPES,
-            )
-            flow.redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
-            authorization_url, state = flow.authorization_url(
-                access_type="offline", include_granted_scopes="true"
-            )
-            session["state"] = state
-            return redirect(authorization_url)
-
-    service = build("gmail", "v1", credentials=creds)
-    return service
-
-# ---------------- Routes ----------------
 
 @app.route("/")
 def index():
-    authorized = "credentials" in session
-    return render_template("index.html", authorized=authorized)
+    if "credentials" in session:
+        return render_template("index.html", connected=True)
+    return render_template("index.html", connected=False)
+
 
 @app.route("/authorize")
 def authorize():
-    response = get_gmail_service()
-    # If get_gmail_service() returned a redirect, return it
-    from werkzeug.wrappers import Response
-    if isinstance(response, Response):
-        return response
-    flash("✅ Gmail already connected!", "success")
-    return redirect(url_for("index"))
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+
+    if not client_id or not client_secret:
+        return "Missing Google OAuth credentials in environment variables.", 500
+
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uris": [url_for("oauth2callback", _external=True)],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        },
+        scopes=SCOPES,
+    )
+
+    flow.redirect_uri = url_for("oauth2callback", _external=True)
+    authorization_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+    )
+
+    session["state"] = state
+    return redirect(authorization_url)
+
 
 @app.route("/oauth2callback")
 def oauth2callback():
     state = session.get("state")
+
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+
     flow = Flow.from_client_config(
         {
             "web": {
-                "client_id": os.environ["GOOGLE_CLIENT_ID"],
-                "project_id": os.environ.get("GOOGLE_PROJECT_ID", "gmail-cleaner"),
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uris": [url_for("oauth2callback", _external=True)],
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                "client_secret": os.environ["GOOGLE_CLIENT_SECRET"],
-                "redirect_uris": [os.environ["GOOGLE_REDIRECT_URI"]],
             }
         },
-        SCOPES,
+        scopes=SCOPES,
         state=state,
     )
-    flow.redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
 
-    flow.fetch_token(authorization_response=request.url)
+    flow.redirect_uri = url_for("oauth2callback", _external=True)
+    authorization_response = request.url
+    flow.fetch_token(authorization_response=authorization_response)
     creds = flow.credentials
 
-    # Save credentials in session
-    session["credentials"] = creds.to_json()
+    # Save only safe parts in session
+    session["credentials"] = {
+        "token": creds.token,
+        "refresh_token": creds.refresh_token,
+    }
 
-    flash("✅ Gmail connected successfully!", "success")
+    flash("✅ Connected to Gmail!", "success")
     return redirect(url_for("index"))
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    flash("🔒 Disconnected from Gmail.", "info")
-    return redirect(url_for("index"))
 
 @app.route("/delete", methods=["POST"])
 def delete_emails():
-    if "credentials" not in session:
-        flash("❌ Please connect Gmail first!", "error")
+    creds_data = session.get("credentials")
+    if not creds_data:
+        flash("Please connect Gmail first.", "error")
         return redirect(url_for("index"))
 
-    creds_data = json.loads(session["credentials"])
-    creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
-    service = build("gmail", "v1", credentials=creds)
-
-    category = request.form.get("category")
-    query = ""
-
-    if category == "flipkart":
-        query = "from:flipkart"
-    elif category == "amazon":
-        query = "from:amazon"
-    elif category == "gpay":
-        query = "from:gpay"
-    elif category == "unread":
-        query = "is:unread"
-    elif category == "custom":
-        query = request.form.get("custom_email")
-
-    if not query:
-        flash("❌ Please enter a valid option!", "error")
+    # ✅ FIX: Safely rebuild credentials
+    if not creds_data or "token" not in creds_data:
+        flash("Session expired or invalid credentials. Please reconnect Gmail.", "error")
         return redirect(url_for("index"))
+
+    creds = Credentials(
+        token=creds_data.get("token"),
+        refresh_token=creds_data.get("refresh_token"),
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=os.environ.get("GOOGLE_CLIENT_ID"),
+        client_secret=os.environ.get("GOOGLE_CLIENT_SECRET"),
+        scopes=SCOPES,
+    )
 
     try:
-        results = service.users().messages().list(userId="me", q=query).execute()
+        service = build("gmail", "v1", credentials=creds)
+        results = service.users().messages().list(userId="me", q="is:read").execute()
         messages = results.get("messages", [])
-        count = 0
+
+        if not messages:
+            flash("No read emails found to delete.", "info")
+            return redirect(url_for("index"))
 
         for msg in messages:
-            service.users().messages().delete(userId="me", id=msg["id"]).execute()
-            count += 1
+            service.users().messages().trash(userId="me", id=msg["id"]).execute()
 
-        flash(f"✅ Deleted {count} emails for query: {query}", "success")
+        flash(f"✅ {len(messages)} read emails moved to trash!", "success")
+
     except HttpError as error:
-        flash(f"❌ Error: {error}", "error")
+        flash(f"An error occurred: {error}", "error")
 
     return redirect(url_for("index"))
 
-# ---------------- Run ----------------
+
+@app.route("/logout")
+def logout():
+    session.pop("credentials", None)
+    flash("Logged out successfully.", "info")
+    return redirect(url_for("index"))
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
+    app.run(host="0.0.0.0", port=5000)
