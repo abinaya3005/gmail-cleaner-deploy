@@ -5,37 +5,41 @@
     <title>Gmail Cleaner</title>
 </head>
 <body>
-    <h2>Gmail Cleaner</h2>
+    <h2>📧 Gmail Cleaner</h2>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <ul>
+            {% for category, message in messages %}
+                <li><strong>{{ category }}:</strong> {{ message }}</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
 
-    {% if connected %}
+    {% if authorized %}
         <p>✅ Connected to Gmail!</p>
-        <form method="POST" action="{{ url_for('delete_emails') }}">
-            <label for="category">Choose category to delete:</label>
-            <select name="category" id="category">
+        <form action="/delete" method="post">
+            <label>Choose category to delete: </label>
+            <select name="category">
+                <option value="">Select</option>
                 <option value="unread">Unread</option>
+                <option value="read">Read</option>
                 <option value="flipkart">Flipkart</option>
                 <option value="amazon">Amazon</option>
                 <option value="gpay">GPay</option>
                 <option value="custom">Custom</option>
-            </select>
-            <input type="text" name="custom_email" placeholder="Enter custom query if any">
+            </select><br><br>
+
+            <label>Enter custom query if any</label>
+            <input type="text" name="custom_email" placeholder="someone@gmail.com"><br><br>
+
             <button type="submit">Delete Emails</button>
         </form>
         <br>
-        <a href="{{ url_for('logout') }}">Logout</a>
+        <a href="/logout">Logout</a>
     {% else %}
         <p>🔒 Not connected</p>
-        <a href="{{ url_for('authorize') }}">Connect Gmail</a>
+        <a href="/authorize">Connect Gmail</a>
     {% endif %}
-
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <ul>
-        {% for category, message in messages %}
-          <li><strong>{{ category }}:</strong> {{ message }}</li>
-        {% endfor %}
-        </ul>
-      {% endif %}
-    {% endwith %}
 </body>
 </html>
