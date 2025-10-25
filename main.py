@@ -14,13 +14,9 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 # ---------------- Gmail API Authentication ----------------
 def get_gmail_service():
     creds = None
-
-    # Load token if exists
     if os.path.exists("token.pickle"):
         with open("token.pickle", "rb") as token:
             creds = pickle.load(token)
-
-    # If no valid creds, login with OAuth
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -40,13 +36,9 @@ def get_gmail_service():
                 SCOPES,
             )
             flow.redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
-
-            authorization_url, state = flow.authorization_url(
-                access_type="offline",
-                include_granted_scopes="true"
-            )
+            auth_url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true")
             session["state"] = state
-            return redirect(authorization_url)
+            return redirect(auth_url)
 
     service = build("gmail", "v1", credentials=creds)
     return service
@@ -84,14 +76,10 @@ def oauth2callback():
         state=state,
     )
     flow.redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
-
-    authorization_response = request.url
-    flow.fetch_token(authorization_response=authorization_response)
-
+    flow.fetch_token(authorization_response=request.url)
     creds = flow.credentials
     with open("token.pickle", "wb") as token:
         pickle.dump(creds, token)
-
     flash("✅ Gmail connected successfully!", "success")
     return redirect(url_for("index"))
 
@@ -99,7 +87,6 @@ def oauth2callback():
 def delete_emails():
     category = request.form.get("category")
     query = ""
-
     if category == "flipkart":
         query = "from:flipkart"
     elif category == "amazon":
@@ -119,20 +106,16 @@ def delete_emails():
         service = get_gmail_service()
         results = service.users().messages().list(userId="me", q=query).execute()
         messages = results.get("messages", [])
-
         if not messages:
             flash("ℹ️ No emails found to delete.", "info")
             return redirect(url_for("index"))
-
         count = 0
         for msg in messages:
             service.users().messages().delete(userId="me", id=msg["id"]).execute()
             count += 1
-
         flash(f"✅ Deleted {count} emails for query: {query}", "success")
     except HttpError as error:
         flash(f"❌ Error: {error}", "error")
-
     return redirect(url_for("index"))
 
 @app.route("/logout")
@@ -142,6 +125,5 @@ def logout():
     flash("✅ Logged out successfully!", "success")
     return redirect(url_for("index"))
 
-# ---------------- Run ----------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
